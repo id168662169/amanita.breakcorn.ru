@@ -163,6 +163,14 @@ function exposeFunctionsToWindow() {
   window.cleanupPlayer = destroyPlayer;
   window.handleVideoError = handleVideoFailure;
   
+  // Expose new keyboard control functions
+  window.togglePlayPause = togglePlayPause;
+  window.loadRandomVideo = loadRandomVideo;
+  window.goBackInHistory = goBackInHistory;
+  
+  // Expose player settings for testing
+  window.playerSettings = playerSettings;
+  
   // Create missing functions that tests expect
   window.checkVideoProgress = function() {
     if (player && player.currentTime !== undefined && player.duration !== undefined) {
@@ -201,6 +209,7 @@ class VideoPlayerSettings {
     this.historySize = this.getHistorySize();
     this.watchHistory = this.loadHistory();
     this.autoplayAllowed = this.getAutoplayPreference();
+    this.historyPosition = 0; // Текущая позиция в истории (0 = последнее видео)
   }
 
   getHistorySize() {
@@ -219,7 +228,8 @@ class VideoPlayerSettings {
     return stored === null ? null : stored === 'true';
   }
 
-  addToHistory(videoId, title = null) {
+  addToHistory(videoId, title = null, writeToCache = true) {
+    // Удаляем дубликаты для гарантии уникальности
     this.watchHistory = this.watchHistory.filter(item => item.id !== videoId);
     this.watchHistory.unshift({
       id: videoId,
@@ -229,7 +239,10 @@ class VideoPlayerSettings {
     if (this.watchHistory.length > this.historySize) {
       this.watchHistory = this.watchHistory.slice(0, this.historySize);
     }
-    this.saveHistory();
+    this.historyPosition = 0; // Сбрасываем позицию при добавлении нового видео
+    if (writeToCache) {
+      this.saveHistory();
+    }
     this.updateHistoryUI();
   }
 
@@ -286,6 +299,48 @@ class VideoPlayerSettings {
     const isVisible = historyWindow.style.display !== 'none';
     historyWindow.style.display = isVisible ? 'none' : 'block';
     if (!isVisible) this.updateHistoryUI();
+  }
+
+  // Новые методы для навигации по истории
+  canGoBack() {
+    return this.historyPosition < this.watchHistory.length - 1;
+  }
+
+  goBackInHistory() {
+    if (!this.canGoBack()) {
+      console.log('No more history, will do random selection without cache');
+      return null; // Нулл означает случайный выбор
+    }
+    
+    // Удаляем текущее видео из истории (последнее добавленное)
+    if (this.historyPosition === 0 && this.watchHistory.length > 0) {
+      this.watchHistory.shift(); // Удаляем первый элемент (текущее видео)
+      this.saveHistory();
+      this.updateHistoryUI();
+    } else {
+      this.historyPosition++;
+    }
+    
+    if (this.historyPosition >= this.watchHistory.length) {
+      console.log('Reached end of history, will do random selection without cache');
+      return null;
+    }
+    
+    const previousVideo = this.watchHistory[this.historyPosition];
+    console.log(`Going back in history to position ${this.historyPosition}: ${previousVideo.title}`);
+    return previousVideo;
+  }
+
+  removeCurrentFromHistory() {
+    // Удаляем текущее видео из истории
+    if (this.historyPosition === 0 && this.watchHistory.length > 0) {
+      const removed = this.watchHistory.shift();
+      console.log(`Removed current video from history: ${removed.title}`);
+      this.saveHistory();
+      this.updateHistoryUI();
+      return removed;
+    }
+    return null;
   }
 }
 
@@ -814,6 +869,84 @@ function forceNextVideo() {
   loadVideo(currentIndex);
 }
 
+// Новые функции для управления
+function togglePlayPause() {
+  if (!player) {
+    console.warn('Player not available for play/pause');
+    return;
+  }
+  
+  try {
+    if (player.paused) {
+      player.play();
+      console.log('Video resumed');
+    } else {
+      player.pause();
+      console.log('Video paused');
+    }
+  } catch (error) {
+    console.warn('Error toggling play/pause:', error);
+  }
+}
+
+function loadRandomVideo() {
+  console.log('Random video selection triggered');
+  clearVideoTimeout();
+  stopWatchdog();
+  consecutiveFailures = Math.max(0, consecutiveFailures - 1);
+  isRecovering = false;
+  currentIndex = getNextVideoIndex();
+  syncWindowVariables();
+  loadVideo(currentIndex);
+}
+
+function goBackInHistory() {
+  console.log('Going back in history');
+  const previousVideo = playerSettings.goBackInHistory();
+  
+  if (previousVideo === null) {
+    // Если история закончилась, делаем полностью случайный выбор без записи в кэш
+    console.log('History ended, doing random selection without caching');
+    clearVideoTimeout();
+    stopWatchdog();
+    consecutiveFailures = Math.max(0, consecutiveFailures - 1);
+    isRecovering = false;
+    
+    // Случайный индекс без учета истории
+    currentIndex = getRandomInt(videos.length);
+    syncWindowVariables();
+    
+    // Загружаем видео без добавления в историю
+    const videoId = videos[currentIndex].type === 'yt' ? 
+      videos[currentIndex].id : 
+      `vimeo-${videos[currentIndex].id}`;
+      
+    setVideoSource(videos[currentIndex]);
+    console.log(`Loading random video without cache: ${videoId}`);
+    return;
+  }
+  
+  // Ищем видео по ID в общем списке
+  const videoIndex = videos.findIndex(video => {
+    const videoId = video.type === 'yt' ? video.id : `vimeo-${video.id}`;
+    return videoId === previousVideo.id;
+  });
+  
+  if (videoIndex !== -1) {
+    clearVideoTimeout();
+    stopWatchdog();
+    isRecovering = false;
+    currentIndex = videoIndex;
+    syncWindowVariables();
+    setVideoSource(videos[currentIndex]);
+    console.log(`Loaded video from history: ${previousVideo.title}`);
+  } else {
+    console.warn(`Video from history not found in videos array: ${previousVideo.id}`);
+    // Если видео из истории не найдено, переходим к случайному
+    loadRandomVideo();
+  }
+}
+
 // Проверка здоровья каждые минуту
 function healthCheck() {
   if (player && !isRecovering) {
@@ -839,10 +972,30 @@ function healthCheck() {
 
 // Обработчики клавиатуры
 document.addEventListener('keydown', function(e) {
-  if (e.code === 'Space' || e.key === 'n' || e.key === 'N') {
+  // Пробел - pause/play
+  if (e.code === 'Space') {
+    e.preventDefault();
+    togglePlayPause();
+  }
+  
+  // Стрелка вправо - случайный выбор из общего списка, исключая историю
+  if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    loadRandomVideo();
+  }
+  
+  // Стрелка влево - назад по истории
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    goBackInHistory();
+  }
+  
+  // N - следующее видео (оставляем для совместимости)
+  if (e.key === 'n' || e.key === 'N') {
     e.preventDefault();
     forceNextVideo();
   }
+  
   // H - тоггл истории
   if (e.key === 'h' || e.key === 'H') {
     e.preventDefault();
