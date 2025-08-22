@@ -1108,8 +1108,7 @@ if (player) {
   console.error('Failed to create initial player');
 }
 
-// Expose functions to window for testing
-exposeFunctionsToWindow();
+// Note: exposeFunctionsToWindow() moved to end of script after all functions are defined
 syncWindowVariables();
 
 // Показываем диалог автовоспроизведения если пользователь ещё не выбрал
@@ -1139,4 +1138,7 @@ logMemoryUsage(); // Первоначальные показатели
 
 // Проверка здоровья каждую минуту
 setInterval(healthCheck, 60000);
+
+// Expose functions to window for testing - MUST be at the end after all functions are defined
+exposeFunctionsToWindow();
 </script></body></html>
