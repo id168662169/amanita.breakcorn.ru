@@ -319,8 +319,9 @@ function getRandomInt(max) {
 function createPlayer() {
   try {
     const newPlayer = new Plyr(container, { 
-      autoplay: true, 
-      controls: ['play', 'progress', 'mute', 'volume', 'fullscreen']
+      autoplay: false, // Отключаем автоплей для стабильности
+      controls: ['play', 'progress', 'mute', 'volume', 'fullscreen'],
+      clickToPlay: true
     });
     return newPlayer;
   } catch (error) {
@@ -445,9 +446,16 @@ function setVideoSource(video) {
     
     setTimeout(() => {
       if (!isRecovering && player && player.play) {
-        player.play().catch(e => {
-          console.warn('Autoplay blocked or failed:', e);
-        });
+        try {
+          const playPromise = player.play();
+          if (playPromise && playPromise.catch) {
+            playPromise.catch(e => {
+              console.warn('Autoplay blocked or failed:', e);
+            });
+          }
+        } catch (e) {
+          console.warn('Error calling player.play():', e);
+        }
       }
     }, 200); // Немного увеличиваем задержку
     
@@ -545,10 +553,15 @@ function setupPlayerEvents() {
       } catch (e) {
         if (e.message && e.message.includes('postMessage')) {
           console.warn(`PostMessage error in ${eventName} event, ignoring:`, e.message);
+        } else if (e.message && (e.message.includes('catch') || e.message.includes('play'))) {
+          // Ошибки автовоспроизведения - не критичные
+          console.warn(`Autoplay error in ${eventName} event, ignoring:`, e.message);
         } else {
           console.error(`Error in ${eventName} event:`, e);
-          // При критических ошибках запускаем восстановление
-          handleVideoFailure(`event_${eventName}_error`);
+          // Только для критических ошибок, не для ready
+          if (eventName !== 'ready') {
+            handleVideoFailure(`event_${eventName}_error`);
+          }
         }
       }
     };
@@ -567,9 +580,16 @@ function setupPlayerEvents() {
     console.log('Player ready, starting playback');
     handleVideoSuccess();
     if (player && player.play) {
-      player.play().catch(e => {
-        console.warn('Autoplay failed:', e);
-      });
+      try {
+        const playPromise = player.play();
+        if (playPromise && playPromise.catch) {
+          playPromise.catch(e => {
+            console.warn('Autoplay failed:', e);
+          });
+        }
+      } catch (e) {
+        console.warn('Error calling player.play() in ready event:', e);
+      }
     }
   }));
   
