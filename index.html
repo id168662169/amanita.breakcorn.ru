@@ -168,10 +168,10 @@ let watchdogInterval = null;
 let lastCurrentTime = -1;
 let stuckTimeCount = 0;
 let zeroTimeCount = 0; // Счетчик для currentTime = 0
-const WATCHDOG_CHECK_INTERVAL = 3000; // Проверяем каждые 3 секунды
-const WATCHDOG_FAST_INTERVAL = 1000; // Ускоренная проверка при проблемах
-const MAX_STUCK_CHECKS = 3; // 3 проверки подряд = 9 секунд без прогресса
-const MAX_ZERO_TIME_CHECKS = 4; // 4 проверки подряд = 12 секунд на currentTime=0
+const WATCHDOG_CHECK_INTERVAL = 10000; // Проверяем каждые 10 секунд (увеличили для стабильности)
+const WATCHDOG_FAST_INTERVAL = 5000; // Ускоренная проверка каждые 5 секунд
+const MAX_STUCK_CHECKS = 6; // 6 проверок подряд = 60 секунд без прогресса
+const MAX_ZERO_TIME_CHECKS = 10; // 10 проверок = 100 секунд на currentTime=0
 
 // Now expose all constants to window for tests
 window.MAX_VIDEOS_BEFORE_RECREATE = MAX_VIDEOS_BEFORE_RECREATE;
@@ -237,10 +237,10 @@ function startWatchdog() {
         return;
       }
       
-      // Обнаружение пропавшего видео (только звук)
+      // Обнаружение пропавшего видео (только звук) - делаем менее агрессивным
       if (hasVideoElement && !videoVisible && currentTime > 0 && !isPaused) {
-        console.warn('Video disappeared but audio continues - likely postMessage issue');
-        handleVideoFailure('watchdog_video_disappeared');
+        console.warn('Video disappeared but audio continues - likely postMessage issue, but continuing...');
+        // Не переключаем видео сразу, даём больше времени
         return;
       }
       
@@ -672,12 +672,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// Клик по экрану для следующего видео (но не на контролы плеера)
+// Клик по экрану для следующего видео ОТКЛЮЧЕН для стабильности
+/*
 document.addEventListener('click', function(e) {
   if (!e.target.closest('.plyr__controls')) {
     forceNextVideo();
   }
 });
+*/
 
 // Перехват postMessage ошибок
 window.addEventListener('error', function(e) {
