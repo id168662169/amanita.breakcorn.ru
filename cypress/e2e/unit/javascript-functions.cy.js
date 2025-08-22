@@ -17,7 +17,7 @@ describe('JavaScript Functions Tests', () => {
 
   it('should have correct video constants', () => {
     cy.window().should((win) => {
-      expect(win.MAX_VIDEOS_BEFORE_RECREATE).to.equal(5)
+      expect(win.MAX_VIDEOS_BEFORE_RECREATE).to.equal(20) // Updated from 5 to 20 for stability
       expect(win.MAX_CONSECUTIVE_FAILURES).to.equal(3)
       expect(win.VIDEO_LOAD_TIMEOUT).to.equal(15000)
       expect(win.WATCHDOG_CHECK_INTERVAL).to.equal(10000) // Updated from 3000 to 10000 for stability
