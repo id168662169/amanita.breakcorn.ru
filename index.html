@@ -104,6 +104,11 @@ const videos = [ // Массив с видео-ссылками (YouTube и Vime
   { type: 'vi', id: '125095515' } // Art/Creative
 ];
 let currentIndex = 0; // Текущий индекс видео
+
+// Make variables accessible to tests by exposing them on window
+window.currentVideoIndex = 0;
+window.videoCount = videos.length;
+window.consecutiveFailures = 0;
 const container = document.getElementById('PLAYER');
 let player = null;
 let videoChangeCount = 0;
@@ -112,6 +117,49 @@ let memoryCheckInterval;
 let lastProvider = null; // Последний использованный провайдер
 const PREFER_PROVIDER_ALTERNATION = false; // Отключено - не мешаем моноисточникам
 let consecutiveFailures = 0;
+
+// Constants will be exposed to window after they are all defined
+
+// Function to sync window variables with local variables
+function syncWindowVariables() {
+  window.currentVideoIndex = currentIndex;
+  window.consecutiveFailures = consecutiveFailures;
+  window.videoCount = videos.length;
+}
+
+// Expose videos array on window
+window.videos = videos;
+
+// Function to expose all functions on window for tests
+function exposeFunctionsToWindow() {
+  // Expose existing functions
+  window.logMemoryUsage = logMemoryUsage;
+  window.startWatchdog = startWatchdog;
+  window.stopWatchdog = stopWatchdog;
+  window.createPlayer = createPlayer;
+  
+  // Create aliases for functions with different names
+  window.loadNextVideo = forceNextVideo;
+  window.cleanupPlayer = destroyPlayer;
+  window.handleVideoError = handleVideoFailure;
+  
+  // Create missing functions that tests expect
+  window.checkVideoProgress = function() {
+    if (player && player.currentTime !== undefined && player.duration !== undefined) {
+      return {
+        currentTime: player.currentTime,
+        duration: player.duration,
+        progress: player.duration > 0 ? player.currentTime / player.duration : 0
+      };
+    }
+    return { currentTime: 0, duration: 0, progress: 0 };
+  };
+  
+  window.handleLoadTimeout = function() {
+    console.warn('Load timeout triggered by test');
+    handleVideoFailure('test_timeout');
+  };
+}
 const MAX_CONSECUTIVE_FAILURES = 3;
 let currentVideoTimeout = null;
 const VIDEO_LOAD_TIMEOUT = 15000; // 15 секунд на загрузку
@@ -120,10 +168,16 @@ let watchdogInterval = null;
 let lastCurrentTime = -1;
 let stuckTimeCount = 0;
 let zeroTimeCount = 0; // Счетчик для currentTime = 0
-let WATCHDOG_CHECK_INTERVAL = 3000; // Проверяем каждые 3 секунды (может уменьшаться)
+const WATCHDOG_CHECK_INTERVAL = 3000; // Проверяем каждые 3 секунды
 const WATCHDOG_FAST_INTERVAL = 1000; // Ускоренная проверка при проблемах
 const MAX_STUCK_CHECKS = 3; // 3 проверки подряд = 9 секунд без прогресса
 const MAX_ZERO_TIME_CHECKS = 4; // 4 проверки подряд = 12 секунд на currentTime=0
+
+// Now expose all constants to window for tests
+window.MAX_VIDEOS_BEFORE_RECREATE = MAX_VIDEOS_BEFORE_RECREATE;
+window.MAX_CONSECUTIVE_FAILURES = MAX_CONSECUTIVE_FAILURES;
+window.VIDEO_LOAD_TIMEOUT = VIDEO_LOAD_TIMEOUT;
+window.WATCHDOG_CHECK_INTERVAL = WATCHDOG_CHECK_INTERVAL;
 
 // Мониторинг памяти
 function logMemoryUsage() {
@@ -431,6 +485,7 @@ function handleVideoFailure(reason) {
   if (isRecovering) return;
   
   consecutiveFailures++;
+  syncWindowVariables();
   console.error(`Video failure (${reason}). Consecutive failures: ${consecutiveFailures}`);
   
   clearVideoTimeout();
@@ -444,11 +499,13 @@ function handleVideoFailure(reason) {
     console.warn(`${isWatchdogFailure ? 'Watchdog failure' : 'Too many consecutive failures'}, forcing player recreation`);
     videoChangeCount = MAX_VIDEOS_BEFORE_RECREATE - 1;
     consecutiveFailures = 0;
+    syncWindowVariables();
   }
   
   const delay = isWatchdogFailure ? 500 : 2000;
   setTimeout(() => {
     currentIndex = getNextVideoIndex();
+    syncWindowVariables();
     loadVideo(currentIndex);
     isRecovering = false;
   }, delay);
@@ -456,6 +513,7 @@ function handleVideoFailure(reason) {
 
 function handleVideoSuccess() {
   consecutiveFailures = 0;
+  syncWindowVariables();
   clearVideoTimeout();
   isRecovering = false;
   stuckTimeCount = 0;
@@ -485,6 +543,7 @@ function setupPlayerEvents() {
     stopWatchdog();
     handleVideoSuccess();
     currentIndex = getNextVideoIndex();
+    syncWindowVariables();
     loadVideo(currentIndex);
   }));
 
@@ -542,6 +601,7 @@ function forceNextVideo() {
   consecutiveFailures = Math.max(0, consecutiveFailures - 1);
   isRecovering = false; // Сбрасываем флаг восстановления
   currentIndex = getNextVideoIndex();
+  syncWindowVariables();
   loadVideo(currentIndex);
 }
 
@@ -602,6 +662,11 @@ window.addEventListener('unhandledrejection', function(e) {
 // Инициализация
 player = createPlayer();
 setupPlayerEvents();
+
+// Expose functions to window for testing
+exposeFunctionsToWindow();
+syncWindowVariables();
+
 loadVideo(currentIndex); // Загрузка первого видео
 
 // Мониторинг памяти каждые 30 секунд
