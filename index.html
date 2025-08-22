@@ -196,6 +196,7 @@ let watchdogInterval = null;
 let lastCurrentTime = -1;
 let stuckTimeCount = 0;
 let zeroTimeCount = 0; // Счетчик для currentTime = 0
+let missingVideoCount = 0; // Счетчик для пропавшего видео элемента
 const WATCHDOG_CHECK_INTERVAL = 10000; // Проверяем каждые 10 секунд (увеличили для стабильности)
 const WATCHDOG_FAST_INTERVAL = 5000; // Ускоренная проверка каждые 5 секунд
 const MAX_STUCK_CHECKS = 6; // 6 проверок подряд = 60 секунд без прогресса
@@ -382,6 +383,7 @@ function startWatchdog() {
   stopWatchdog();
   lastCurrentTime = -1;
   stuckTimeCount = 0;
+  missingVideoCount = 0; // Сбрасываем счетчик пропавшего видео
   
   // Адаптивный интервал проверок
   const interval = consecutiveFailures > 0 ? WATCHDOG_FAST_INTERVAL : WATCHDOG_CHECK_INTERVAL;
@@ -410,11 +412,20 @@ function startWatchdog() {
         return;
       }
       
-      // Обнаружение пропавшего видео (только звук) - делаем менее агрессивным
+      // Обнаружение пропавшего видео (только звук) - улучшенная логика
       if (hasVideoElement && !videoVisible && currentTime > 0 && !isPaused) {
-        console.warn('Video disappeared but audio continues - likely postMessage issue, but continuing...');
-        // Не переключаем видео сразу, даём больше времени
+        missingVideoCount++;
+        console.warn(`Video disappeared but audio continues - likely postMessage issue (count: ${missingVideoCount})`);
+        
+        // Если видео отсутствует слишком долго, принудительно переключаем
+        if (missingVideoCount >= 4) { // 4 проверки = ~40-60 секунд
+          console.warn('Video element missing too long, forcing next video');
+          handleVideoFailure('missing_video_element');
+          return;
+        }
         return;
+      } else {
+        missingVideoCount = 0; // Сбрасываем счетчик если видео вернулось
       }
       
       // Проверяем прогресс воспроизведения
@@ -1055,20 +1066,39 @@ document.addEventListener('click', function(e) {
 */
 
 // Перехват postMessage ошибок
+let postMessageErrorCount = 0;
 window.addEventListener('error', function(e) {
-  if (e.message && e.message.includes('postMessage')) {
-    console.warn('Caught postMessage error, ignoring:', e.message);
+  if (e.message && (e.message.includes('postMessage') || e.message.includes('cross-origin'))) {
+    postMessageErrorCount++;
+    console.warn(`Caught postMessage/CORS error #${postMessageErrorCount}, ignoring:`, e.message);
+    
+    // Если ошибок слишком много, переключаем видео
+    if (postMessageErrorCount > 10 && player) {
+      console.warn('Too many postMessage errors, switching to next video');
+      forceNextVideo();
+      postMessageErrorCount = 0;
+    }
+    
     return true; // Предотвращаем всплывание
   }
 });
 
 // Перехват unhandled promise rejections
 window.addEventListener('unhandledrejection', function(e) {
-  if (e.reason && e.reason.toString && e.reason.toString().includes('postMessage')) {
+  if (e.reason && e.reason.toString && (e.reason.toString().includes('postMessage') || e.reason.toString().includes('cross-origin'))) {
+    postMessageErrorCount++;
     console.warn('Caught postMessage promise rejection, ignoring:', e.reason);
     e.preventDefault();
   }
 });
+
+// Периодический сброс счетчика postMessage ошибок
+setInterval(() => {
+  if (postMessageErrorCount > 0) {
+    console.log(`Resetting postMessage error count (was: ${postMessageErrorCount})`);
+    postMessageErrorCount = Math.max(0, postMessageErrorCount - 2); // Постепенно уменьшаем
+  }
+}, 30000); // Каждые 30 секунд
 
 // Инициализация
 player = createPlayer();
