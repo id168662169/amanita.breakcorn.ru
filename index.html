@@ -611,6 +611,20 @@ function setupPlayerEvents() {
   
   player.on('error', safeEventHandler('error', function (e) {
     console.error('Player error:', e);
+    
+    // Проверяем, является ли ошибка критичной
+    const errorMessage = e?.detail?.message || e?.message || '';
+    const errorName = e?.detail?.name || '';
+    
+    // Не критичные ошибки - просто логируем
+    if (errorName === 'PlayInterrupted' || 
+        errorMessage.includes('interrupted by a call to pause') ||
+        errorMessage.includes('play() request was interrupted')) {
+      console.warn('Non-critical player error, ignoring:', errorMessage);
+      return;
+    }
+    
+    // Критичные ошибки - переключаем видео
     stopWatchdog();
     handleVideoFailure('player_error');
   }));
