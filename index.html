@@ -317,10 +317,16 @@ function getRandomInt(max) {
 }
 
 function createPlayer() {
-  return new Plyr(container, { 
-    autoplay: true, 
-    controls: ['play', 'progress', 'mute', 'volume', 'fullscreen']
-  });
+  try {
+    const newPlayer = new Plyr(container, { 
+      autoplay: true, 
+      controls: ['play', 'progress', 'mute', 'volume', 'fullscreen']
+    });
+    return newPlayer;
+  } catch (error) {
+    console.error('Failed to create player:', error);
+    return null;
+  }
 }
 
 function destroyPlayer(forceful = false) {
@@ -395,8 +401,13 @@ function loadVideo(index) { // Функция для загрузки и вос�
     const delay = needsForcefulCleanup ? 600 : 200; // Большая задержка при принудительной очистке
     setTimeout(() => {
       player = createPlayer();
-      setupPlayerEvents();
-      setVideoSource(video);
+      if (player) {
+        setupPlayerEvents();
+        setVideoSource(video);
+      } else {
+        console.error('Failed to recreate player, triggering recovery');
+        handleVideoFailure('player_creation_failed');
+      }
     }, delay);
     return;
   }
@@ -433,7 +444,7 @@ function setVideoSource(video) {
     startVideoTimeout();
     
     setTimeout(() => {
-      if (!isRecovering) {
+      if (!isRecovering && player && player.play) {
         player.play().catch(e => {
           console.warn('Autoplay blocked or failed:', e);
         });
@@ -521,6 +532,11 @@ function handleVideoSuccess() {
 }
 
 function setupPlayerEvents() {
+  if (!player) {
+    console.warn('Cannot setup player events: player is null');
+    return;
+  }
+  
   // Обертка для безопасного вызова событий
   function safeEventHandler(eventName, handler) {
     return function(...args) {
@@ -661,7 +677,11 @@ window.addEventListener('unhandledrejection', function(e) {
 
 // Инициализация
 player = createPlayer();
-setupPlayerEvents();
+if (player) {
+  setupPlayerEvents();
+} else {
+  console.error('Failed to create initial player');
+}
 
 // Expose functions to window for testing
 exposeFunctionsToWindow();
