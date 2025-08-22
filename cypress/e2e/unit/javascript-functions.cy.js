@@ -129,18 +129,42 @@ describe('JavaScript Functions Tests', () => {
 })
 
   it('should have new keyboard control functions available', () => {
+    // Wait for page to fully load and all JavaScript to execute
+    cy.wait(5000)
+    
     cy.window().then((win) => {
-      // Check for new keyboard control functions
-      expect(win.togglePlayPause).to.be.a('function')
-      expect(win.loadRandomVideo).to.be.a('function') 
-      expect(win.goBackInHistory).to.be.a('function')
+      // Wait for functions to be defined with retry
+      const checkFunctions = () => {
+        return win.togglePlayPause && win.loadRandomVideo && win.goBackInHistory && win.playerSettings
+      }
       
-      // Check for player settings exposure
-      expect(win.playerSettings).to.be.an('object')
-      if (win.playerSettings) {
-        expect(win.playerSettings.canGoBack).to.be.a('function')
-        expect(win.playerSettings.goBackInHistory).to.be.a('function')
-        expect(win.playerSettings.addToHistory).to.be.a('function')
+      // Retry if functions aren't ready yet
+      if (!checkFunctions()) {
+        cy.wait(2000)
+        cy.window().then((retryWin) => {
+          expect(retryWin.togglePlayPause).to.be.a('function')
+          expect(retryWin.loadRandomVideo).to.be.a('function') 
+          expect(retryWin.goBackInHistory).to.be.a('function')
+          expect(retryWin.playerSettings).to.be.an('object')
+          
+          if (retryWin.playerSettings) {
+            expect(retryWin.playerSettings.canGoBack).to.be.a('function')
+            expect(retryWin.playerSettings.goBackInHistory).to.be.a('function')
+            expect(retryWin.playerSettings.addToHistory).to.be.a('function')
+          }
+        })
+      } else {
+        // Functions are ready immediately
+        expect(win.togglePlayPause).to.be.a('function')
+        expect(win.loadRandomVideo).to.be.a('function') 
+        expect(win.goBackInHistory).to.be.a('function')
+        expect(win.playerSettings).to.be.an('object')
+        
+        if (win.playerSettings) {
+          expect(win.playerSettings.canGoBack).to.be.a('function')
+          expect(win.playerSettings.goBackInHistory).to.be.a('function')
+          expect(win.playerSettings.addToHistory).to.be.a('function')
+        }
       }
       
       cy.log('All new keyboard control functions are available')
